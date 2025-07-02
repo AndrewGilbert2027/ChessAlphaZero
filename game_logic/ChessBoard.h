@@ -74,6 +74,8 @@ public:
         _board[7][6] = new Knight(Color::BLACK);
         _board[7][7] = new Rook(Color::BLACK);
 
+        last_piece = nullptr; // Initialize last piece to nullptr
+        last_move = Move(Coords(-1, -1), Coords(-1, -1)); // Initialize last move to invalid coordinates
         this->safe_squares = get_safe_squares(); // Initialize safe squares
     }
 
@@ -281,6 +283,23 @@ public:
                         }
                     }
                 }
+                if (dynamic_cast<const King*>(piece)) {
+                    if (can_castle(dynamic_cast<King*>(piece), true)) {
+                        valid_moves.push_back(Move(Coords(rank, file), Coords(rank, file + 2))); // King-side castling
+                    }
+                    if (can_castle(dynamic_cast<King*>(piece), false)) {
+                        valid_moves.push_back(Move(Coords(rank, file), Coords(rank, file -2)));  // Queen-side castling
+                    }
+                } else if (dynamic_cast<Pawn*>(piece)) {
+                    Pawn* pawn = dynamic_cast<Pawn*>(piece);
+                    Coords pawn_coords(rank, file);
+                    if (can_en_passant(pawn, pawn_coords)) {
+                        // En passant move
+                        int en_passant_x = (pawn->get_color() == Color::WHITE) ? rank + 1 : rank - 1;
+                        int en_passant_y = last_move.to.y;
+                        valid_moves.push_back(Move(Coords(rank, file), Coords(en_passant_x, en_passant_y)));
+                    }
+                }
             }
         }
 
@@ -376,6 +395,16 @@ public:
                         std::string key = std::to_string(rank) + ',' + std::to_string(file);
                         safe_squares[key].push_back(Coords(rank, file - 2)); // Queen-side castling
                     }
+                } else if (dynamic_cast<Pawn*>(piece)) {
+                    Pawn* pawn = dynamic_cast<Pawn*>(piece);
+                    Coords pawn_coords(rank, file);
+                    if (can_en_passant(pawn, pawn_coords)) {
+                        // En passant move
+                        int en_passant_x = (pawn->get_color() == Color::WHITE) ? rank + 1 : rank - 1;
+                        int en_passant_y = last_move.to.y;
+                        std::string key = std::to_string(rank) + ',' + std::to_string(file);
+                        safe_squares[key].push_back(Coords(en_passant_x, en_passant_y));
+                    }
                 }
             }
         }
@@ -421,9 +450,40 @@ public:
 
         // Switch turn
         _turn = (_turn == Color::WHITE) ? Color::BLACK : Color::WHITE;
+        last_piece = piece; // Update last piece
+        last_move = move; // Update last move
         safe_squares = get_safe_squares(); // Update safe squares after the move
 
         return true; // Move was successful
+    }
+
+    bool can_en_passant(Pawn* p, Coords pCoords) {
+        if (p == nullptr || p->get_color() != _turn) {
+            return false; // Not a pawn or not the player's turn
+        }
+        if (last_piece == nullptr) {
+            return false; // No last piece to check against
+        }
+
+        int prevX = last_move.from.x;
+        int currX = last_move.to.x;
+        int currY = last_move.to.y;
+        if (
+            dynamic_cast<Pawn*>(last_piece) == nullptr ||
+            abs(prevX - currX) != 2 || // Last move must be a two-square pawn advance
+            last_piece->get_color() == _turn || // Last piece must be of the opposite color
+            currX != pCoords.x || // Last move must be in the same column as the pawn
+            abs(currY - pCoords.y) != 1 // Last move must be adjacent to the pawn
+        ) return false;
+
+        // Check if the pawn can safely move to the en passant square
+        this->_board[currX][currY] = nullptr; 
+        int nPawnX = (p->get_color() == Color::WHITE) ? pCoords.x + 1 : pCoords.x - 1;
+        int nPawnY = pCoords.y;
+        Coords nPawnCoords(nPawnX, nPawnY);
+        bool safe = this->position_safe_after_move(p, pCoords, nPawnCoords);
+        this->_board[currX][currY] = last_piece; // Restore the last piece
+        return safe; // Return whether the pawn can safely move to the en passant square
     }
 
 
@@ -433,7 +493,9 @@ public:
         }
 
         const Coords& king_pos = (k->get_color() == Color::WHITE) ? Coords(0, 4) : Coords(7, 4);
-        const Coords& rook_pos = (king_side_castle) ? Coords(0, 7) : Coords(0, 0);
+
+        int rank = (k->get_color() == Color::WHITE) ? 0 : 7;
+        const Coords& rook_pos = Coords(rank, king_side_castle==true ? 7 : 0);
         if (_board[rook_pos.x][rook_pos.y] == nullptr || 
             !dynamic_cast<Rook*>(_board[rook_pos.x][rook_pos.y]) || 
             dynamic_cast<Rook*>(_board[rook_pos.x][rook_pos.y])->get_has_moved()) {
@@ -477,8 +539,40 @@ public:
                 _board[to.x][to.y + 1] = _board[from.x][0]; // Move the Rook
                 _board[from.x][0] = nullptr; // Clear the Rook's original square
             }
+        } else if (dynamic_cast<Pawn*>(piece) && last_piece != nullptr) {
+            if (
+                dynamic_cast<Pawn*>(last_piece) &&
+                abs(last_move.from.x - last_move.to.x) == 2 && // Last move was a two-square pawn advance
+                last_piece->get_color() != piece->get_color() && // Last piece is of the opposite color
+                abs(last_move.to.x - to.x) == 1 &&
+                from.x == last_move.to.x && // Pawn is on same column as the last move 
+                abs(from.y - to.y) == 1 && // Pawn is moving diagonally
+                to.y == last_move.to.y // Pawn is moving to the same row as the last move
+            )
+            {
+                // En passant capture
+                delete _board[last_move.to.x][last_move.to.y]; // Capture the last moved pawn
+                _board[last_move.to.x][last_move.to.y] = nullptr; // Clear the captured pawn's square
+            }
         }
 
+    }
+
+    // Add inside the public section of the ChessBoard class (This is used for the GUI implementation)
+    std::vector<std::vector<char>> get_board_state_chars() const {
+        std::vector<std::vector<char>> board_state(8, std::vector<char>(8, '.'));
+        
+        for (int i = 0; i < 8; ++i) {
+            for (int j = 0; j < 8; ++j) {
+                if (_board[i][j] != nullptr) {
+                    board_state[i][j] = static_cast<char>(_board[i][j]->get_fen_char());
+                } else {
+                    board_state[i][j] = '.';
+                }
+            }
+        }
+        
+        return board_state;
     }
 
 
@@ -490,6 +584,8 @@ public:
         return coords.x >= 0 && coords.x < 8 && coords.y >= 0 && coords.y < 8;
     }
     std::map<std::string, std::vector<Coords>> safe_squares;
+    Piece* last_piece;
+    Move last_move;
 };
 
 #endif // CHESS_BOARD_H

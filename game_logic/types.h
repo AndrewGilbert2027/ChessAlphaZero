@@ -1,6 +1,8 @@
 #ifndef TYPES_H
 #define TYPES_H
 
+#include <ostream>
+
 enum class Color {
     WHITE = 1,
     BLACK = -1
@@ -53,6 +55,10 @@ struct Coords {
     }
 };
 
+inline std::ostream& operator<<(std::ostream& os, const Coords& coords) {
+    os << "(" << coords.x << "," << coords.y << ")";
+    return os;
+}
 
 struct Move {
     Coords from; // Starting position of the piece
@@ -60,8 +66,26 @@ struct Move {
     Move(const Coords& from = Coords(), const Coords& to = Coords()) : from(from), to(to) {}
     Move(int from_x, int from_y, int to_x, int to_y) 
         : from(Coords(from_x, from_y)), to(Coords(to_x, to_y)) {}
+    
+    bool operator==(const Move& other) const {
+        return from == other.from && to == other.to;
+    }
+    friend std::ostream& operator<<(std::ostream& os, const Move& move);
+
+    operator std::tuple<int, int, int, int>() const {
+        return std::make_tuple(from.x, from.y, to.x, to.y);
+    }
+
+    std::tuple<int, int, int, int> unpack() const {
+        return std::make_tuple(from.x, from.y, to.x, to.y);
+    }
 };
 
+inline std::ostream& operator<<(std::ostream& os, const Move& move) {
+    os << "Move from (" << move.from.x << "," << move.from.y << ") to (" 
+       << move.to.x << "," << move.to.y << ")";
+    return os;
+}
 
 enum FENChar {
     WhitePAWN = 'P',

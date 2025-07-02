@@ -8,19 +8,11 @@ int main () {
 
     std::cout << "Initial Chess Board Setup:\n";
     board.print_board();
-    std::cout << "Play a move (0,1 to 7,7):\n";
-    int from_x, from_y, to_x, to_y;
-    while (true) {
-        std::cout << "Enter move (from_x from_y to_x to_y): ";
-        std::cin >> from_x >> from_y >> to_x >> to_y;
-
-        if (board.make_move(Move(Coords(from_x, from_y), Coords(to_x, to_y)))) {
-            std::cout << "Move successful!\n";
-            board.print_board();
-        } else {
-            std::cout << "Invalid move. Try again.\n";
-        }
-    }
+    board.make_move(Move(Coords(1, 0), Coords(3, 0))); // Move a pawn
+    board.print_board();
+    board.make_move(Move(Coords(6, 1), Coords(4, 1))); // Move a black pawn
+    board.print_board();
+    board.make_move(Move(Coords(3, 0), Coords(4, 1))); // Capture a black pawn
     
     
     
