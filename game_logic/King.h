@@ -4,7 +4,7 @@
 
 class King : public Piece {
 public:
-    King(Color color) : Piece(color, (color == Color::WHITE ? WhiteKING : BlackKING)) {
+    King(Color color) : Piece(color, (color == Color::WHITE ? WhiteKING : BlackKING), 'k') {
         _directions = {{0, 1}, {0, -1}, {1, 0}, {-1, 0},
                        {1, 1}, {1, -1}, {-1, 1}, {-1, -1}};
     }
@@ -21,8 +21,8 @@ public:
         return *this;
     }
 
-    bool get_has_moved() const { return has_moved; }
-    void set_has_moved() { has_moved = true; }
+    bool get_has_moved() const override { return has_moved; }
+    void set_has_moved() override { has_moved = true; }
 
 private:
     bool has_moved = false;

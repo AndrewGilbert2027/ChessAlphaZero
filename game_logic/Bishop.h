@@ -4,7 +4,7 @@
 
 class Bishop : public Piece {
 public:
-    Bishop(Color color) : Piece(color, (color == Color::WHITE ? WhiteBISHOP : BlackBISHOP)) {
+    Bishop(Color color) : Piece(color, (color == Color::WHITE ? WhiteBISHOP : BlackBISHOP), 'b') {
         _directions = {{1, 1}, {1, -1}, {-1, 1}, {-1, -1}};
     }
 

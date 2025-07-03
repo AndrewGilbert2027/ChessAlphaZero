@@ -4,7 +4,7 @@
 
 class Queen : public Piece {
 public:
-    Queen(Color color) : Piece(color, (color == Color::WHITE ? WhiteQUEEN : BlackQUEEN)) {
+    Queen(Color color) : Piece(color, (color == Color::WHITE ? WhiteQUEEN : BlackQUEEN), 'q') {
         _directions = {{0, 1}, {0, -1}, {1, 0}, {-1, 0},
                        {1, 1}, {1, -1}, {-1, 1}, {-1, -1}};
     }

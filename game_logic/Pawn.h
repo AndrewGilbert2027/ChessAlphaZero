@@ -4,7 +4,7 @@
 
 class Pawn : public Piece {
 public:
-    Pawn(Color color) : Piece(color, (color == Color::WHITE ? WhitePAWN : BlackPAWN)) {
+    Pawn(Color color) : Piece(color, (color == Color::WHITE ? WhitePAWN : BlackPAWN), 'p') {
         _directions = (color == Color::WHITE) ? std::vector<Coords>{{1, 0}, {2, 0}, {1, 1}, {1, -1}}
                                        : std::vector<Coords>{{-1, 0}, {-2, 0}, {-1, 1}, {-1, -1}};
     }
@@ -17,15 +17,12 @@ public:
         if (this != &other) {
             Piece::operator=(other);
             has_moved = other.has_moved;
-            if (has_moved == true) {
-                this->set_has_moved();
-            }
         }
         return *this;
     }
 
-    bool get_has_moved() const { return has_moved; }
-    void set_has_moved() {
+    bool get_has_moved() const override { return has_moved; }
+    void set_has_moved() override {
         has_moved = true;
         _directions = (get_color() == Color::WHITE) ? std::vector<Coords>{{1, 0}, {1, 1}, {1, -1}}
                                              : std::vector<Coords>{{-1, 0}, {-1, 1}, {-1, -1}};

@@ -2,6 +2,7 @@
 #define TYPES_H
 
 #include <ostream>
+#include <tuple>
 
 enum class Color {
     WHITE = 1,
