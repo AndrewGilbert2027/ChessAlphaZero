@@ -41,5 +41,9 @@ PYBIND11_MODULE(chessengine, m) {
         .def("get_valid_moves", &ChessBoard::get_valid_moves, 
              "Get all valid moves for the current turn")
         .def("get_safe_squares", &ChessBoard::get_safe_squares, 
-             "Get all safe squares for the current turn");
+             "Get all safe squares for the current turn")
+        .def("is_game_over", &ChessBoard::is_game_over, 
+             "Check if the game is over")
+        .def("get_outcome", &ChessBoard::get_outcome, 
+             "Get the outcome of the game (checkmate, stalemate, etc.)");
 }

@@ -135,6 +135,9 @@ class ChessGUI:
                     col = event.pos[0] // SQUARE_SIZE
                     row = event.pos[1] // SQUARE_SIZE
                     self.handle_click(row, col)
+            if self.board.is_game_over():
+                print("Game Over!")
+                running = False
             
             # Draw everything
             self.draw_board()

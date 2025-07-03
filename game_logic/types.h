@@ -100,7 +100,8 @@ enum FENChar {
     BlackQUEEN = 'q',
     WhiteKING = 'K',
     BlackKING = 'k',
-    EMPTY_SQUARE = '.'
+    EMPTY_SQUARE = '.',
+    NULL_SQUARE = '\0'
 };
 
 #endif // TYPES_H

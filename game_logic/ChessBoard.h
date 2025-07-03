@@ -76,6 +76,7 @@ public:
 
         last_piece = nullptr; // Initialize last piece to nullptr
         last_move = Move(Coords(-1, -1), Coords(-1, -1)); // Initialize last move to invalid coordinates
+        _game_over = false;
         this->safe_squares = get_safe_squares(); // Initialize safe squares
     }
 
@@ -123,6 +124,24 @@ public:
     // Get the current turn
     Color get_turn() const {
         return _turn;
+    }
+
+    ChessBoard* step(const Move& move) {
+        ChessBoard* new_board = this->clone(); // Create a deep copy of the current board
+        new_board->make_move(move); // Apply the move to the new board
+        return new_board; // Return the new board
+    }
+
+    void reset() {
+        // Reset the board to the initial state
+        for (int i = 0; i < 8; ++i) {
+            for (int j = 0; j < 8; ++j) {
+                delete _board[i][j]; // Clean up existing pieces
+                _board[i][j] = nullptr; // Set to nullptr
+            }
+        }
+        // Reinitialize the board
+        *this = ChessBoard();
     }
 
 
@@ -306,6 +325,138 @@ public:
         return valid_moves;
     }
 
+    bool is_game_over() const {
+        return _game_over;
+    }
+
+    void check_game_over() {
+        // Check if the current player has any valid moves
+        if (this->safe_squares.size() == 0) {
+            // If the current player has no valid moves, check if they are in check
+            if (is_in_check(_turn)) {
+                this->_game_over = true; // Checkmate
+                this->outcome = (_turn == Color::WHITE) ? -1 : 1; // Set outcome based on the current turn (black wins (outcome -1))
+                std::cout << "Checkmate! " << (_turn == Color::WHITE ? "Black" : "White") << " wins!" << std::endl;
+            } else {
+                _game_over = true; // Stalemate
+                this->outcome = 0; // Set outcome to draw
+                std::cout << "Stalemate! The game is a draw." << std::endl;
+            }
+        }
+        if (fifty_move_rule_counter >= 100) {
+            _game_over = true; // Fifty-move rule
+            this->outcome = 0; // Set outcome to draw
+            std::cout << "Fifty-move rule! The game is a draw." << std::endl;
+        } else if (insufficient_material()) {
+            _game_over = true; // Insufficient material
+            this->outcome = 0; // Set outcome to draw
+            std::cout << "Insufficient material! The game is a draw." << std::endl;
+        }
+    }
+
+    int get_outcome() const {
+        return this->outcome;
+    }
+
+    bool containsMinorPiece(std::vector<std::pair<Piece*, Coords>> pieces) {
+        for (auto const& [piece, coord] : pieces) {
+            if (dynamic_cast<Bishop*>(piece) || dynamic_cast<Knight*>(piece)) {
+                return true; // Found a minor piece
+            }
+        }
+        return false; // No minor pieces found
+    }
+
+    bool insufficient_material() {
+        std::vector<std::pair<Piece*, Coords>> white_pieces;
+        std::vector<std::pair<Piece*, Coords>> black_pieces;
+
+        for (int rank = 0; rank < 8; ++rank) {
+            for (int file = 0; file < 8; ++file) {
+                Piece* piece = _board[rank][file];
+                if (piece != nullptr) {
+                    if (piece->get_color() == Color::WHITE) {
+                        white_pieces.push_back({piece, Coords(rank, file)});
+                    } else {
+                        black_pieces.push_back({piece, Coords(rank, file)});
+                    }
+                }
+            }
+        }
+
+        // Check for insufficient material conditions
+        // King vs King
+        if (white_pieces.size() == 1 && black_pieces.size() == 1) {
+            return true; // Only kings left
+        }
+
+        // King vs King + minor piece (Bishop or Knight)
+        if (white_pieces.size() == 2 && black_pieces.size() == 1) {
+            if (containsMinorPiece(white_pieces)) {
+                return true;
+            }
+        }
+
+        if (black_pieces.size() == 2 && white_pieces.size() == 1) {
+            if (containsMinorPiece(black_pieces)) {
+                return true;
+            }
+        }
+
+        // King and Bishop vs King and Bishop (bishops on same colored squares)
+        if (white_pieces.size() == 2 && black_pieces.size() == 2) {
+            std::pair<Piece*, Coords> white_non_king = {nullptr, {}};
+            for(const auto& p : white_pieces) {
+                if (!dynamic_cast<King*>(p.first)) {
+                    white_non_king = p;
+                    break;
+                }
+            }
+
+            std::pair<Piece*, Coords> black_non_king = {nullptr, {}};
+            for(const auto& p : black_pieces) {
+                if (!dynamic_cast<King*>(p.first)) {
+                    black_non_king = p;
+                    break;
+                }
+            }
+
+            if (dynamic_cast<Bishop*>(white_non_king.first) && dynamic_cast<Bishop*>(black_non_king.first)) {
+                bool white_bishop_is_light = (white_non_king.second.x + white_non_king.second.y) % 2 == 0;
+                bool black_bishop_is_light = (black_non_king.second.x + black_non_king.second.y) % 2 == 0;
+                if (white_bishop_is_light == black_bishop_is_light) {
+                    return true; // Bishops on same color squares
+                }
+            }
+        }
+
+        // Two Knights + King vs King
+        if (white_pieces.size() == 3 && black_pieces.size() == 1) {
+            int knight_count = 0;
+            for (const auto& p : white_pieces) {
+                if (dynamic_cast<Knight*>(p.first)) {
+                    knight_count++;
+                }
+            }
+            if (knight_count == 2) {
+                return true; // Two knights vs king
+            }
+        }
+        if (black_pieces.size() == 3 && white_pieces.size() == 1) {
+            int knight_count = 0;
+            for (const auto& p : black_pieces) {
+                if (dynamic_cast<Knight*>(p.first)) {
+                    knight_count++;
+                }
+            }
+            if (knight_count == 2) {
+                return true; // Two knights vs king
+            }
+        }
+
+        return false; // Material is sufficient for a checkmate
+    }
+
     std::map<std::string, std::vector<Coords>> get_safe_squares() {
         std::map<std::string, std::vector<Coords>> safe_squares;
 
@@ -436,9 +587,15 @@ public:
         // Handle special moves
         handle_special_move(piece, move.from, move.to);
 
-        // Move the piece
-        delete _board[move.to.x][move.to.y]; // Capture any piece at the target square
+        // Update the board
+        if (_board[move.to.x][move.to.y] != nullptr || dynamic_cast<Pawn*>(piece)) {
+            fifty_move_rule_counter = 0; // Reset the fifty-move rule counter if a piece is captured
+        } else {
+            fifty_move_rule_counter++; // Increment the fifty-move rule counter if no piece is captured
+        }
+        delete _board[move.to.x][move.to.y]; // Delete the piece at the target square if it exists
         _board[move.to.x][move.to.y] = piece;
+
         _board[move.from.x][move.from.y] = nullptr; // Clear the from square
         if (dynamic_cast<King*>(piece)) {
             dynamic_cast<King*>(piece)->set_has_moved(); // Mark the King as having moved
@@ -446,6 +603,12 @@ public:
             dynamic_cast<Rook*>(piece)->set_has_moved(); // Mark the Rook as having moved
         } else if (dynamic_cast<Pawn*>(piece)) {
             dynamic_cast<Pawn*>(piece)->set_has_moved(); // Mark the Pawn as having moved
+            if (move.to.x == 7 || move.to.x == 0) {
+                // Handle pawn promotion
+                delete _board[move.to.x][move.to.y]; // Delete the pawn at the target square
+                piece = new Queen(piece->get_color()); // Create a new Queen piece
+                _board[move.to.x][move.to.y] = piece; // Place the new Queen at the target square
+            }
         }
 
         // Switch turn
@@ -453,6 +616,7 @@ public:
         last_piece = piece; // Update last piece
         last_move = move; // Update last move
         safe_squares = get_safe_squares(); // Update safe squares after the move
+        check_game_over(); // Check if the game is over after the move
 
         return true; // Move was successful
     }
@@ -575,6 +739,20 @@ public:
         return board_state;
     }
 
+    Piece* promoted_piece(FENChar type) {
+        switch (type) {
+            case WhiteROOK: return new Rook(Color::WHITE);
+            case BlackROOK: return new Rook(Color::BLACK);
+            case WhiteKNIGHT: return new Knight(Color::WHITE);
+            case BlackKNIGHT: return new Knight(Color::BLACK);
+            case WhiteBISHOP: return new Bishop(Color::WHITE);
+            case BlackBISHOP: return new Bishop(Color::BLACK);
+            case WhiteQUEEN: return new Queen(Color::WHITE);
+            case BlackQUEEN: return new Queen(Color::BLACK);
+            default: return nullptr; // Invalid piece type
+        }
+    }
+
 
 
 
@@ -586,6 +764,9 @@ public:
     std::map<std::string, std::vector<Coords>> safe_squares;
     Piece* last_piece;
     Move last_move;
+    bool _game_over; 
+    int fifty_move_rule_counter = 0; // Counter for the fifty-move rule (100 half-moves)
+    int outcome; // Not initialized if ongoing, 1 if white wins, -1 if black wins, 0 if draw
 };
 
 #endif // CHESS_BOARD_H
