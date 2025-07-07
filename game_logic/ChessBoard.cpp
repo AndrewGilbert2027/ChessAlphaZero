@@ -8,7 +8,6 @@
 #include <iostream>
 #include <algorithm>
 #include <string>
-#include <pthread.h>
 
 // Helper function to copy a piece based on its type
 static Piece* copy_piece(const Piece* piece) {
@@ -64,7 +63,13 @@ ChessBoard::ChessBoard() {
     last_move = Move(Coords(-1, -1), Coords(-1, -1));
     _game_over = false;
     outcome = 0; // Default to draw, will be updated
-    this->safe_squares = get_safe_squares();
+    this->fifty_move_rule_counter = 0;
+    can_castle_king_side = false;
+    can_castle_queen_side = false;
+    _en_passant_valid = false;
+    state_tensor = std::vector<float>(9 * 8 * 8, 0.0f); // Initialize state tensor
+    policy_mask = std::vector<float>(8 * 8 * 8 * 8, 0.0f); // Initialize policy mask
+    this->valid_moves = get_valid_moves();
 }
 
 ChessBoard::~ChessBoard() {
@@ -88,7 +93,9 @@ ChessBoard::ChessBoard(const ChessBoard& other) {
             _board[i][j] = copy_piece(other._board[i][j]);
         }
     }
-    safe_squares = other.safe_squares;
+    valid_moves = other.valid_moves;
+    policy_mask = other.policy_mask;
+    state_tensor = other.state_tensor;
 }
 
 ChessBoard& ChessBoard::operator=(const ChessBoard& other) {
@@ -99,6 +106,7 @@ ChessBoard& ChessBoard::operator=(const ChessBoard& other) {
                 _board[i][j] = copy_piece(other._board[i][j]);
             }
         }
+
         _turn = other._turn;
         delete last_piece;
         last_piece = other.last_piece ? copy_piece(other.last_piece) : nullptr;
@@ -106,7 +114,9 @@ ChessBoard& ChessBoard::operator=(const ChessBoard& other) {
         _game_over = other._game_over;
         fifty_move_rule_counter = other.fifty_move_rule_counter;
         outcome = other.outcome;
-        safe_squares = other.safe_squares;
+        valid_moves = other.valid_moves;
+        policy_mask = other.policy_mask;
+        state_tensor = other.state_tensor;
     }
     return *this;
 }
@@ -214,14 +224,44 @@ bool ChessBoard::position_safe_after_move(Piece* piece, const Coords& from, cons
 }
 
 std::vector<Move> ChessBoard::get_valid_moves() {
-    std::vector<Move> valid_moves;
+    // Clear previous state
+    valid_moves.clear();
+    policy_mask.assign(8 * 8 * 8 * 8, 0.0f);
+    state_tensor.assign(9 * 8 * 8, 0.0f);
+    can_castle_king_side = false;
+    can_castle_queen_side = false;
+    _en_passant_valid = false;
+
+    auto set_tensor_value = [this](int channel, int row, int col, float value) {
+        int index = (channel * 64) + (row * 8) + col;
+        this->state_tensor[index] = value;
+    };
+
     for (int rank = 0; rank < 8; ++rank) {
         for (int file = 0; file < 8; ++file) {
             Piece* piece = _board[rank][file];
+
+            // Part 1: Populate piece planes for the state tensor
+            if (piece) {
+                int channel;
+                float value = (piece->get_color() == _turn) ? 1.0f : -1.0f;
+                switch (piece->get_type()) {
+                    case 'p': channel = 0; break;
+                    case 'n': channel = 1; break;
+                    case 'b': channel = 2; break;
+                    case 'r': channel = 3; break;
+                    case 'q': channel = 4; break;
+                    case 'k': channel = 5; break;
+                    default: continue;
+                }
+                set_tensor_value(channel, rank, file, value);
+            }
+
             if (piece == nullptr || piece->get_color() != _turn) {
                 continue;
             }
 
+            // Part 2: Generate valid moves and update policy mask
             char piece_type = piece->get_type();
             for (const Coords& direction : piece->get_directions()) {
                 int x = rank + direction.x;
@@ -246,25 +286,29 @@ std::vector<Move> ChessBoard::get_valid_moves() {
                     }
                 }
 
-                if (piece_type == 'p' || piece_type == 'n' || piece_type == 'k') {
-                    if (position_safe_after_move(piece, Coords(rank, file), Coords(x, y))) {
-                        valid_moves.push_back(Move(Coords(rank, file), Coords(x, y)));
+                auto add_move_if_valid = [&](const Coords& from, const Coords& to) {
+                    if (position_safe_after_move(piece, from, to)) {
+                        valid_moves.push_back(Move(from, to));
+                        size_t index = (from.x * 8 * 8 * 8) + (from.y * 8 * 8) + (to.x * 8) + to.y;
+                        if (index < policy_mask.size()) {
+                            policy_mask[index] = 1.0f;
+                        }
                     }
+                };
+
+                if (piece_type == 'p' || piece_type == 'n' || piece_type == 'k') {
+                    add_move_if_valid(Coords(rank, file), Coords(x, y));
                 } else { // Sliding pieces
                     int current_x = rank + direction.x;
                     int current_y = file + direction.y;
                     while (are_coords_valid(Coords(current_x, current_y))) {
                         if (_board[current_x][current_y] != nullptr) {
                             if (_board[current_x][current_y]->get_color() != _turn) {
-                                if (position_safe_after_move(piece, Coords(rank, file), Coords(current_x, current_y))) {
-                                    valid_moves.push_back(Move(Coords(rank, file), Coords(current_x, current_y)));
-                                }
+                                add_move_if_valid(Coords(rank, file), Coords(current_x, current_y));
                             }
                             break;
-                        }
-                        if (position_safe_after_move(piece, Coords(rank, file), Coords(current_x, current_y))) {
-                            valid_moves.push_back(Move(Coords(rank, file), Coords(current_x, current_y)));
-                        }
+                        } 
+                        add_move_if_valid(Coords(rank, file), Coords(current_x, current_y));
                         current_x += direction.x;
                         current_y += direction.y;
                     }
@@ -273,18 +317,38 @@ std::vector<Move> ChessBoard::get_valid_moves() {
             if (piece_type == 'k') {
                 if (can_castle(static_cast<King*>(piece), true)) {
                     valid_moves.push_back(Move(Coords(rank, file), Coords(rank, file + 2)));
+                    policy_mask[(rank * 8 * 8 * 8) + (file * 8 * 8) + (rank * 8) + (file + 2)] = 1.0f;
+                    can_castle_king_side = true;
                 }
                 if (can_castle(static_cast<King*>(piece), false)) {
                     valid_moves.push_back(Move(Coords(rank, file), Coords(rank, file - 2)));
+                    policy_mask[(rank * 8 * 8 * 8) + (file * 8 * 8) + (rank * 8) + (file - 2)] = 1.0f;
+                    can_castle_queen_side = true;
                 }
             } else if (piece_type == 'p') {
                 if (can_en_passant(static_cast<Pawn*>(piece), Coords(rank, file))) {
                     int en_passant_x = (_turn == Color::WHITE) ? rank + 1 : rank - 1;
                     valid_moves.push_back(Move(Coords(rank, file), Coords(en_passant_x, last_move.to.y)));
+                    policy_mask[(rank * 8 * 8 * 8) + (file * 8 * 8) + (en_passant_x * 8) + last_move.to.y] = 1.0f;
+                    _en_passant_valid = true;
                 }
             }
         }
     }
+
+    // Part 3: Populate special move planes for the state tensor
+    if (can_castle_king_side) {
+        for (int i = 0; i < 64; ++i) state_tensor[6 * 64 + i] = 1.0f;
+    }
+    if (can_castle_queen_side) {
+        for (int i = 0; i < 64; ++i) state_tensor[7 * 64 + i] = 1.0f;
+    }
+    if (_en_passant_valid) {
+        int ep_row = (_turn == Color::WHITE) ? last_move.to.x + 1 : last_move.to.x - 1;
+        int ep_col = last_move.to.y;
+        set_tensor_value(8, ep_row, ep_col, 1.0f);
+    }
+
     return valid_moves;
 }
 
@@ -293,24 +357,20 @@ bool ChessBoard::is_game_over() const {
 }
 
 void ChessBoard::check_game_over() {
-    if (get_valid_moves().empty()) {
+    if (valid_moves.empty()) {
         if (is_in_check(_turn)) {
             _game_over = true;
             outcome = (_turn == Color::WHITE) ? -1 : 1;
-            std::cout << "Checkmate! " << (_turn == Color::WHITE ? "Black" : "White") << " wins!" << std::endl;
         } else {
             _game_over = true;
             outcome = 0;
-            std::cout << "Stalemate! The game is a draw." << std::endl;
         }
     } else if (fifty_move_rule_counter >= 100) {
         _game_over = true;
         outcome = 0;
-        std::cout << "Fifty-move rule! The game is a draw." << std::endl;
     } else if (insufficient_material()) {
         _game_over = true;
         outcome = 0;
-        std::cout << "Insufficient material! The game is a draw." << std::endl;
     }
 }
 
@@ -373,16 +433,6 @@ bool ChessBoard::insufficient_material() {
     return false;
 }
 
-std::map<std::string, std::vector<Coords>> ChessBoard::get_safe_squares() {
-    std::map<std::string, std::vector<Coords>> safe_squares_map;
-    std::vector<Move> moves = get_valid_moves();
-    for (const auto& move : moves) {
-        std::string key = std::to_string(move.from.x) + "," + std::to_string(move.from.y);
-        safe_squares_map[key].push_back(move.to);
-    }
-    return safe_squares_map;
-}
-
 ChessBoard* ChessBoard::clone() const {
     return new ChessBoard(*this);
 }
@@ -395,10 +445,7 @@ bool ChessBoard::make_move(const Move& move) {
         return false;
     }
 
-    std::string key = std::to_string(move.from.x) + "," + std::to_string(move.from.y);
-    if (safe_squares.find(key) == safe_squares.end()) return false;
-    const auto& moves_for_piece = safe_squares.at(key);
-    if (std::find(moves_for_piece.begin(), moves_for_piece.end(), move.to) == moves_for_piece.end()) {
+    if (std::find(valid_moves.begin(), valid_moves.end(), move) == valid_moves.end()) {
         return false;
     }
 
@@ -424,7 +471,7 @@ bool ChessBoard::make_move(const Move& move) {
     _turn = (_turn == Color::WHITE) ? Color::BLACK : Color::WHITE;
     last_piece = piece;
     last_move = move;
-    safe_squares = get_safe_squares();
+    valid_moves = get_valid_moves();
     check_game_over();
 
     return true;
@@ -514,4 +561,20 @@ void ChessBoard::handle_special_move(Piece* piece, const Coords& from, const Coo
         delete _board[captured_pawn_x][to.y];
         _board[captured_pawn_x][to.y] = nullptr;
     }
+}
+
+Move ChessBoard::random_move() {
+        if (valid_moves.empty()) {
+            return Move(Coords(-1, -1), Coords(-1, -1)); // No valid moves
+        }
+        int random_index = rand() % valid_moves.size();
+        return valid_moves[random_index];
+}
+
+std::vector<float> ChessBoard::get_state_tensor() {
+    return state_tensor;
+}
+
+std::vector<float> ChessBoard::get_policy_mask() {
+    return policy_mask;
 }

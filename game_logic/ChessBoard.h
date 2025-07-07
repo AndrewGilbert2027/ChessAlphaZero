@@ -11,6 +11,7 @@ class Pawn;
 class Rook;
 class King;
 
+
 class ChessBoard {
 public:
     /**
@@ -106,13 +107,6 @@ public:
     bool insufficient_material();
 
     /**
-     * @brief Gets a map of all legal moves for the current player, organized by piece.
-     * The key is a string representation of the piece's coordinates.
-     * @return A map where keys are "rank,file" and values are vectors of valid destination coordinates.
-     */
-    std::map<std::string, std::vector<Coords>> get_safe_squares();
-
-    /**
      * @brief Creates a deep copy of the current ChessBoard object.
      * @return A pointer to the newly created ChessBoard. The caller is responsible for deleting this object.
      */
@@ -131,23 +125,52 @@ public:
      */
     std::vector<std::vector<char>> get_board_state_chars() const;
 
-    Move random_move() {
-        std::vector<Move> moves = get_valid_moves();
-        if (moves.empty()) {
-            return Move(); // Return an empty move if no valid moves are available
-        }
-        return moves[rand() % moves.size()]; // Randomly select a move from the valid moves
-    }
+    /**
+     * @brief Generates a random legal move for the current player.
+     * @return A Move object representing a random legal move.
+     * If no legal moves are available, returns a default Move object (from(0,0) to(0,0)).
+     * This function is useful for AI simulations or testing purposes.
+     */
+    Move random_move(); 
+
+    /**
+     * Returns a tensor representation of the current board state relative to the current player's perspective.
+     * The tensor is a 3D array with dimensions [9][8][8], flattened into a 1D vector, where:
+     * The first dimension (channels) contains 9 planes:
+     * - 0: Pawns (1 for current player, -1 for opponent)
+     * - 1: Knights
+     * - 2: Bishops
+     * - 3: Rooks
+     * - 4: Queens
+     * - 5: Kings
+     * - 6: Can king-side castle (all 1s if yes, 0s otherwise)
+     * - 7: Can queen-side castle (all 1s if yes, 0s otherwise)
+     * - 8: En passant target square (1 on the specific square, 0s otherwise)
+     */
+    std::vector<float> get_state_tensor();
+
+    /**
+     * @brief Returns a policy mask for the current player's valid moves.
+     * The policy mask is of size 8x8x8x8 (from_row, from_col, to_row, to_col), flattened.
+     * Each entry is 1.0 if the move is valid, 0.0 otherwise.
+     */
+    std::vector<float> get_policy_mask();
+
+    Piece* _board[8][8]; // 8x8 board of pieces
 
 private:
-    Piece* _board[8][8]; // 8x8 board of pieces
     Color _turn;         // Current turn (WHITE or BLACK)
-    std::map<std::string, std::vector<Coords>> safe_squares; // Map of safe squares for the current turn
+    std::vector<Move> valid_moves; // List of valid moves for the current turn
+    std::vector<float> policy_mask; // Placeholder for policy mask, currently empty
+    std::vector<float> state_tensor; // Placeholder for state tensor, currently empty
     Piece* last_piece;
     Move last_move;
     bool _game_over;
     int fifty_move_rule_counter = 0;
     int outcome;
+    bool can_castle_king_side = false;
+    bool can_castle_queen_side = false;
+    bool _en_passant_valid = false;
 
     /**
      * @brief Checks if a given set of coordinates is within the bounds of the 8x8 board.
