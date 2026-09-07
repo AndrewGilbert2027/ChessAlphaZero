@@ -93,11 +93,13 @@ class Deep_Node:
         # Calculate UCT values for all actions
         U = {}
         for action in self.P:
-            if self.N[action] == 0:
-                # If action has never been visited, set U to the prior probability
-                U[action] = self.P[action] 
-            
-            exploration = puct * self.P[action] * np.sqrt(self.N_visits) / (1 + self.N[action])
+            # On a node's first visit N_visits is 0, and sqrt(0) would zero the
+            # exploration term for every action. With Q also starting at 0 that
+            # leaves every score identical and the choice falling out of dict
+            # order, ignoring the policy entirely. Flooring the count at 1 keeps
+            # the prior in charge until there is a visit to learn from.
+            visits = max(self.N_visits, 1)
+            exploration = puct * self.P[action] * np.sqrt(visits) / (1 + self.N[action])
             exploitation = self.Q[action]
             U[action] = exploitation * self.T[action] + exploration
             
